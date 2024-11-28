@@ -56,6 +56,55 @@
 (define tree5
   (positive-leaf 42))
 
+(define tree6
+  (interior-node
+   (interior-node
+    (positive-leaf 13)
+    (negative-leaf 10))
+   (interior-node
+    (positive-leaf 37)
+    (negative-leaf 40))))
+
+(define tree7
+  (interior-node
+   (interior-node
+    (positive-leaf 13)
+    (interior-node
+     (positive-leaf 3)
+     (negative-leaf 13)))
+   (interior-node
+    (positive-leaf 37)
+    (negative-leaf 40))))
+
+(define tree8
+  (interior-node
+   (interior-node
+    (positive-leaf 0)
+    (interior-node
+     (positive-leaf 3)
+     (negative-leaf 3)))
+   (interior-node
+    (positive-leaf 40)
+    (negative-leaf 40))))
+
+(define tree9
+  (interior-node
+   (interior-node
+    (positive-leaf 5)
+    (negative-leaf 5))
+   (interior-node
+    (positive-leaf 10)
+    (negative-leaf 10))))
+
+(define tree10
+  (interior-node
+   (interior-node
+    (positive-leaf 3)
+    (negative-leaf 2)) 
+   (interior-node
+    (positive-leaf 10)
+    (negative-leaf 10))))
+
 
 
 
@@ -102,12 +151,45 @@
 ; 3.
 ; balanced?: Tree -> boolean
 
+; Helper function to compute the sum of a tree's leaves
+; sum: Tree -> integer 
 (define (sum tree)
   (type-case Tree tree
     [positive-leaf (val) val]
     [negative-leaf (val) (- val)]
-    [interior-node (l r) (+ (balanced? l) (balanced? r))]))
-
+    [interior-node (l r) (+ (sum l) (sum r))]))
 
 (define (balanced? tree)
   (equal? (sum tree) 0))
+
+(test (balanced? tree1) false)
+
+(test (balanced? tree2) false)
+
+(test (balanced? tree3) false)
+
+(test (balanced? tree6) true)
+
+(test (balanced? tree7) true)
+
+; 4.
+; deep-balanced?: Tree -> boolean
+(define (deep-balanced? tree)
+  (type-case Tree tree
+    [positive-leaf (val) true]
+    [negative-leaf (val) true]
+    [interior-node (l r) (and
+                          (equal? (+ (sum l) (sum r)) 0)
+                          (deep-balanced? l) (deep-balanced? r))]))
+
+(test (deep-balanced? tree5) true)
+
+(test (deep-balanced? tree7) false)
+
+(test (deep-balanced? tree8) true)
+
+(test (deep-balanced? tree9) true)
+
+(test (deep-balanced? tree10) false)
+
+
