@@ -105,6 +105,93 @@
     (positive-leaf 10)
     (negative-leaf 10))))
 
+(define tree11
+  (interior-node
+   (interior-node
+    (negative-leaf 3)
+    (positive-leaf 2)) 
+   (interior-node
+    (negative-leaf 10)
+    (positive-leaf 10))))
+
+(define tree12
+  (interior-node
+   (interior-node
+    (negative-leaf 0)
+    (interior-node
+     (negative-leaf 3)
+     (positive-leaf 3)))
+   (interior-node
+    (negative-leaf 40)
+    (positive-leaf 40))))
+
+(define tree13
+  (interior-node
+   (interior-node
+    (negative-leaf 1)
+    (positive-leaf 4)) 
+   (interior-node
+    (negative-leaf 8)
+    (positive-leaf 12))))
+
+(define tree14
+  (interior-node
+   (interior-node
+    (positive-leaf 1)
+    (positive-leaf 6)) 
+   (interior-node
+    (negative-leaf 6)
+    (positive-leaf 14))))
+
+(define tree15
+  (interior-node
+   (interior-node
+    (negative-leaf 14)
+    (negative-leaf 9)) 
+   (interior-node
+    (negative-leaf 21)
+    (negative-leaf 1))))
+
+(define tree16
+  (interior-node
+   (interior-node
+    (negative-leaf 3)
+    (positive-leaf 2)) 
+   (interior-node
+    (negative-leaf 10)
+    (positive-leaf 10))))
+
+(define tree17
+  (interior-node
+    (interior-node
+      (positive-leaf 5)
+      (negative-leaf 3))
+    (positive-leaf 7)))
+
+(define tree18
+  (interior-node
+    (positive-leaf 5)
+    (positive-leaf 7)))
+
+(define tree19
+  (interior-node
+    (negative-leaf 10)
+    (interior-node
+      (negative-leaf 6)
+      (positive-leaf 9))))
+
+(define tree20
+  (positive-leaf 9))
+
+(define tree21
+  (interior-node
+    (interior-node
+      (negative-leaf 4)
+      (negative-leaf 3))
+    (negative-leaf 5)))
+
+
+
 
 
 
@@ -191,5 +278,61 @@
 (test (deep-balanced? tree9) true)
 
 (test (deep-balanced? tree10) false)
+
+; 5.
+; negate: Tree -> Tree
+(define (negate tree)
+  (type-case Tree tree
+    [positive-leaf (val) (negative-leaf val)]
+    [negative-leaf (val) (positive-leaf val)]
+    [interior-node (l r) (interior-node
+                          (negate l)
+                          (negate r))]))
+
+(test (negate tree10) tree11)
+
+(test (negate tree11) tree10)
+
+(test (negate tree8) tree12)
+
+(test (negate tree12) tree8)
+
+; 6.
+; add: Tree integer -> Tree
+(define (add tree num)
+  (type-case Tree tree
+    [positive-leaf (val) (if (< (+ val num) 0) (negative-leaf (- (+ val num))) (positive-leaf (+ val num)))]
+    [negative-leaf (val) (if (< (+ (- val) num) 0) (negative-leaf (- (+ (- val) num))) (positive-leaf (+ (- val) num)))]
+    [interior-node (l r) (interior-node
+                          (add l num)
+                          (add r num))]))
+
+(test (add tree11 2) tree13)
+
+(test (add tree11 4) tree14)
+
+(test (add tree11 -11) tree15)
+
+; 7.
+; positive-thinking: Tree -> (U Tree false)
+
+(define (positive-thinking tree)
+  (type-case Tree tree
+    [positive-leaf (val) (positive-leaf val)]      
+    [negative-leaf (val) false]                  
+    [interior-node (l r)
+     (let ([left (positive-thinking l)]            
+           [right (positive-thinking r)])          
+       (cond
+         [(and (equal? left false) (equal? right false)) false] 
+         [(equal? left false) right]                           
+         [(equal? right false) left]                         
+         [else (interior-node left right)]))]))
+
+(test (positive-thinking tree17) tree18)
+
+(test (positive-thinking tree19) tree20)
+
+(test (positive-thinking tree21) false)
 
 
