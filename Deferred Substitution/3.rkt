@@ -210,16 +210,23 @@
                   (aSub name
                         (interp named-expr fundefs ds)
                         ds))]
-    [app (fun-name arg-expr)
-         (define the-fundef (lookup-fundef fun-name fundefs))
-         (define new-ds (aSub (fundef-param-name the-fundef)
-                              (interp arg-expr
-                                      fundefs
-                                      ds)
-                              (mtSub)))
-         (interp (fundef-body the-fundef)
-                 fundefs
-                 new-ds)]))
+    [app (fun-name arg-exprs)
+         (define found-function (lookup-fundef fun-name fundefs))
+         (define found-function-param-names (fundef-param-names found-function))
+         (define body (fundef-body found-function))
+         (unless (equal? (length arg-exprs) (length found-function-param-names))
+           (error 'interp "wrong arity"))
+         (define interpreted-arg-exprs
+           (map (lambda (arg-expr) (interp arg-expr fundefs ds)) arg-exprs))
+         (define paired-symbol-to-name
+           (map cons found-function-param-names interpreted-arg-exprs))
+         (define new-ds
+           (foldl (lambda (pair acc) (aSub (car pair)
+                                           (cdr pair)
+                                           acc))
+                  (mtSub)
+                  paired-symbol-to-name))
+         (interp body fundefs new-ds)]))
 
 ;; lookup : symbol? DefSub? -> number?
 
@@ -228,8 +235,8 @@
     [mtSub () (error 'interp "free identifier")]
     [aSub (name2 value rest)
           (if (equal? name name2)
-              value)
-          (lookup name rest)]))
+              value
+              (lookup name rest))]))
 
 ;; lookup-fundef : symbol? (listof FunDef?) -> FunDef?
 
@@ -241,29 +248,123 @@
         [else
          (lookup-fundef name (rest fundefs))]))
 
-(test (lookup-fundef 
-       'f 
-       (list (fundef 'g (list) (num 3))
-             (fundef 'f (list 'x) (add (num 1) (id 'x)))
-             (fundef 'z (list) (num 1))))
-      (fundef 'f (list 'x) (add (num 1) (id 'x))))
+
+
+;; parse, parse-defn, interp tests, functions with multiple arguments:
+
+;; utilizing deferred substitution: each interp takes in an initially empty ds variable binding list:
+(define initial-def-sub (mtSub))
+
+(test (interp (parse `{f 10})
+              (list (fundef 'f '(x) 
+                            (parse `{- 20 {twice {twice x}}}))
+                    (fundef 'twice '(y) 
+                            (parse `{+ y y}))) initial-def-sub)
+      -20)
+
+(test (interp (parse '{+ {f 10 20 30} {g 50 20}})
+              (list (fundef 'f '(x y z) 
+                            (parse `{+ x {+ y z}}))
+                    (fundef 'g '(a b) 
+                            (parse `{- a b}))) 
+              initial-def-sub)
+      90)
+
+(test (interp (parse '{with {x 10} {f {+ x 5} 20}})
+              (list (fundef 'f '(a b) 
+                            (parse `{+ a b}))) 
+              initial-def-sub)
+      35)
+
+(test (interp (parse '{with {x 5} {f x 10}})
+              (list (fundef 'f '(a b) 
+                            (parse `{+ a b}))) 
+              initial-def-sub)
+      15)
+
+(test (interp (parse '{with {y 2} {f y}})
+              (list (parse-defn '{deffun {f x} {+ x 1}}))
+              initial-def-sub)
+      3)
+
+(test (interp (parse '{+ {f 10} {g 20 10}})
+              (list (parse-defn '{deffun {f x} {+ x 1}})
+                    (parse-defn '{deffun {g a b} {- a b}}))
+              initial-def-sub)
+      21)
+
+(test (interp (parse '{+ {f 1 2 3} {g 10 2 1}})
+              (list (parse-defn '{deffun {f x y z} {+ x {+ y z}}})
+                    (parse-defn '{deffun {g a b c} {- a {+ b c}}}))
+              initial-def-sub)
+      13)
+
+
+;; errors: undefined function, bad syntax, wrong arrity, free identifier 
+
+(test/exn (interp (parse '{with {a {+ 5 6}} {+ a b}})
+                  (list)
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (parse '{+ {with {x {+ 2 3}} x} {with {y 10} {+ y z}}})
+                  (list)
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (parse '{with {x y} (+ 1 23)})
+                  (list)
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (parse '{f 10 20})
+                  (list (parse-defn '{deffun {f x y} {+ x z}}))
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (parse '{h 3 4})
+                  (list (parse-defn '{deffun {h a a} {+ a a}}))
+                  initial-def-sub)
+          "bad syntax")
+
+(test/exn (interp (parse '{g 5 10})
+                  (list (parse-defn '{deffun {g x y x} {+ x y}}))
+                  initial-def-sub)
+          "bad syntax")
+
+
+(test/exn (interp (parse '{with {z {+ 5 5}} {f z}})
+                  (list (parse-defn '{deffun {g x y} {+ x y}}))
+                  initial-def-sub)
+          "undefined function")
+
+(test/exn (interp (parse '{h 10})
+                  (list (parse-defn '{deffun {f x} {+ x x}}))
+                  initial-def-sub)
+          "undefined function")
+
+(test/exn (interp (parse '{f 20})
+                  (list (parse-defn '{deffun {f a b} {+ a b}}))
+                  initial-def-sub)
+          "wrong arity")
+
+
+(test/exn (interp (parse '{with {a {+ 3 3}} {f a}})
+                  (list (parse-defn '{deffun {f x y z} {+ x y}}))
+                  initial-def-sub)
+          "wrong arity")
 
 
 
-
-
-
-
+;; provided tests
 
 ;; ----------------------------------------------------------------------
 ;; tests from last time, updated
 
-(define initial-def-sub (mtSub))
-
 ;; {deffun {f x} {+ y x}}
 ;; {with {y 2} {f 10}}
 (test/exn (interp (parse `{with {y 2} {f 10}})
-                  (list (fundef 'f 'x
+                  (list (fundef 'f '(x) 
                                 (parse `{+ y x})))
                   initial-def-sub)
           "free identifier")
@@ -271,19 +372,22 @@
 ;; {deffun {f x} {+ 1 x}}
 ;; {with {y 2} {f y}} ; -> 3
 (test (interp (parse `{with {y 2} {f y}})
-              (list (fundef 'f 'x (parse `{+ 1 x})))
+              (list (fundef 'f '(x) (parse `{+ 1 x})))
               initial-def-sub)
       3)
 
 ;; 5 -> 5
 (test (interp (parse `5) '() initial-def-sub)
       5)
+
 ;; {+ 1 2} -> 3
 (test (interp (parse `{+ 1 2}) '() initial-def-sub)
       3)
+
 ;; {- 3 4} -> -1
 (test (interp (parse `{- 3 4}) '() initial-def-sub)
       -1)
+
 ;; {+ {+ 1 2} {- 3 4}} -> 2
 (test (interp (parse `{+ {+ 1 2} {- 3 4}}) '() initial-def-sub)
       2)
@@ -297,11 +401,13 @@
               '()
               initial-def-sub)
       6)
+
 #|
 x
 |#
 (test/exn (interp (parse `x) '() initial-def-sub)
           "free identifier")
+
 #|
 {+ {with {x {+ 1 2}}
          {+ x x}}
@@ -315,6 +421,7 @@ x
               '()
               initial-def-sub)
       8)
+
 #|
 {+ {with {x {+ 1 2}}
          {+ x x}}
@@ -328,6 +435,7 @@ x
               '()
               initial-def-sub)
       8)
+
 #|
 {with {x {+ 1 2}}
       {with {x {- 4 3}}
@@ -339,6 +447,7 @@ x
               '()
               initial-def-sub)
       2)
+
 #|
 {with {x {+ 1 2}}
       {with {y {- 4 3}}
@@ -351,22 +460,24 @@ x
               initial-def-sub)
       6)
 
+;; Function application tests
 (test/exn (interp (parse `{f 10})
                   (list)
                   initial-def-sub)
           "undefined function")
+
 (test (interp (parse `{f 10})
-              (list (fundef 'f 'x
+              (list (fundef 'f '(x) 
                             (parse `{- 20 {twice {twice x}}}))
-                    (fundef 'twice 'y
+                    (fundef 'twice '(y) 
                             (parse `{+ y y})))
               initial-def-sub)
       -20)
+
 (test (interp (parse `{f 10})
-              (list (fundef 'f 'x
+              (list (fundef 'f '(x)  
                             (parse `{- 10 {twice {twice x}}}))
-                    (fundef 'twice 'y
+                    (fundef 'twice '(y) 
                             (parse `{+ y y})))
               initial-def-sub)
       -30)
-
