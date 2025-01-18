@@ -2,71 +2,100 @@
 
 (print-only-errors)
 
-(define-type F1WAE
+(define-type fnWAE
   [num (n number?)]
-  [add (lhs F1WAE?)
-       (rhs F1WAE?)]
-  [sub (lhs F1WAE?)
-       (rhs F1WAE?)]
+  [add (lhs fnWAE?)
+       (rhs fnWAE?)]
+  [sub (lhs fnWAE?)
+       (rhs fnWAE?)]
   [with (name symbol?)
-        (bound-expr F1WAE?)
-        (body-expr F1WAE?)]
+        (bound-expr fnWAE?)
+        (body-expr fnWAE?)]
   [id (name symbol?)]
   [app (fun-name symbol?)
-       (arg-expr F1WAE?)])
+       (arg-exprs (listof fnWAE?))])
 
 (define-type FunDef
   [fundef (fun-name symbol?)
-          (param-name symbol?)
-          (body F1WAE?)])
+          (param-names (listof symbol?))
+          (body fnWAE?)])
 
 #|
-<FunDef> ::= {deffun {<id> <id>} <F1WAE>}
-<F1WAE> ::= <num>
-         | {+ <F1WAE> <F1WAE>}
-         | {- <F1WAE> <F1WAE>}
-         | {with {<id> <F1WAE>} <F1WAE>}
+<FunDef> ::= {deffun {<id> <id>*} <fnWAE>}
+<fnWAE> ::= <num>
+         | {+ <fnWAE> <fnWAE>}
+         | {- <fnWAE> <fnWAE>}
+         | {with {<id> <fnWAE>} fnWAE>}
          | <id>
-         | {<id> <F1WAE>}
+         | {<id> <fnWAE>*}
 |#
 
-;; parse : s-expression -> F1WAE?
-(define (parse s-exp)
-  (cond [(number? s-exp) (num s-exp)]
-        [(symbol? s-exp) (id s-exp)]
-        [(list? s-exp)
-         (when (empty? s-exp)
-           (error 'parse "the empty list is not a valid F1WAE"))
-         (case (first s-exp)
+;; parse : s-expression -> fnWAE?
+
+(define (parse s-expr)
+  (cond [(number? s-expr) (num s-expr)]
+        [(symbol? s-expr) (id s-expr)]
+        [(list? s-expr)
+         (case (first s-expr)
            [(+)
-            (check-pieces s-exp 3 "addition")
-            (add (parse (second s-exp))
-                 (parse (third s-exp)))]
+            (check-pieces s-expr 3 "addition")
+            (add (parse (second s-expr))
+                 (parse (third s-expr)))]
            [(-)
-            (check-pieces s-exp 3 "subtraction")
-            (sub (parse (second s-exp))
-                 (parse (third s-exp)))]
+            (check-pieces s-expr 3 "subtraction")
+            (sub (parse (second s-expr))
+                 (parse (third s-expr)))]
            [(with)
-            (check-pieces s-exp 3 "with")
-            (check-pieces (second s-exp) 2 "with binding pair")
-            (unless (symbol? (first (second s-exp)))
-              (error 'parse "expected variable name, got: ~a" (first (second s-exp))))
-            (with (first (second s-exp))
-                  (parse (second (second s-exp)))
-                  (parse (third s-exp)))]
+            (check-pieces s-expr 3 "with")
+            (check-pieces (second s-expr) 2 "with binding")
+            (unless (symbol? (first (second s-expr)))
+              (error 'parse "expected a variable name, got: ~a" (first (second s-expr))))
+            (with (first (second s-expr))
+                  (parse (second (second s-expr)))
+                  (parse (third s-expr)))]
            [else
-            (check-pieces s-exp 2 "function application")
-            (unless (symbol? (first s-exp))
-              (error 'parse "expected a function name, got: ~a" (first s-exp)))
-            (app (first s-exp)
-                 (parse (second s-exp)))])]
+            (unless (symbol? (first s-expr))
+              (error 'parse "expected a function name, got: ~a" (first s-expr)))
+            (app (first s-expr)
+                 (map parse (rest s-expr)))]
+            )]
         [else
-         (error 'parse "expected an F1WAE, got: ~a" s-exp)]))
+         (error 'parse "expected an fnWAE, got: ~a" s-expr)]
+        ))
+
+;; parse-defn : s-expression -> fNWAE?
+
+(define (parse-defn s-expr)
+  (case (first s-expr)
+    [(deffun)
+     (unless (symbol? (first (second s-expr)))
+       (error 'parse-defn "expected a function name, got: ~a" (first (second s-expr))))
+     (when (list-repeat? (rest (second s-expr)))
+       (error 'parse-defn "bad syntax, two or more arguments are the same"))
+     (fundef (first (second s-expr))
+             (rest (second s-expr))
+             (parse (third s-expr)))]
+    [else
+     (error 'parse-defn "expected a deffun expression, got: ~a" s-expr)]))
+
+;; list-repeat? : (listof symbol) -> bool
+
+(define (list-repeat? lst)
+  (cond [(empty? lst) #f]
+        [(member (first lst) (rest lst)) #t]
+        [else (list-repeat? (rest lst))]))
+
+
+
+;; check-pieces : s-expression number string -> void?
 
 (define (check-pieces s-exp n-pieces expected)
   (unless (and (list? s-exp)
                (= (length s-exp) n-pieces))
     (error 'parse "expected ~a, got: ~a" expected s-exp)))
+
+
+
 
 (test (parse `1)
       (num 1))
@@ -81,17 +110,65 @@
 (test (parse `{with {x 3} {+ x 2}})
       (with 'x (num 3) (add (id 'x) (num 2))))
 (test (parse `{f 10})
-      (app 'f (num 10)))
+      (app 'f (list (num 10))))
+
+(test (parse '{f 10 {+ 1 3}})
+      (app 'f (list (num 10) (add (num 1) (num 3)))))
+
+(test (parse '{f x {f 10} {- 5 3}})
+      (app 'f (list (id 'x)
+                    (app 'f (list (num 10)))
+                    (sub (num 5) (num 3)))))
+
+(test (parse '{f})
+      (app 'f (list)))
+
+
 (test/exn (parse `{1 2})
           "expected a function name")
 (test/exn (parse `{+ 1 2 3})
           "expected addition")
+(test/exn (parse '{with {2 2} {+ 3 2}})
+          "expected a variable name")
+
+
+
+
+(test (parse-defn '{deffun {f x y} {+ 1 2}})
+      (fundef 'f (list 'x 'y)
+              (add (num 1) (num 2))))
+
+(test (parse-defn '{deffun {f x y} {+ x y}})
+      (fundef 'f (list 'x 'y)
+              (add (id 'x) (id 'y))))
+
+(test (parse-defn '{deffun {f} 5})
+      (fundef 'f (list)
+              (num 5)))
+
+(test (parse-defn '{deffun {f x y} x})
+      (fundef 'f (list 'x 'y) (id 'x)))
+
+(test (parse-defn '{deffun {f x y} {+ x y}})
+      (fundef 'f (list 'x 'y) (add (id 'x) (id 'y))))
+
+
+(test/exn (parse-defn '{deffun {123 x y} {+ 1 2}})
+          "expected a function name")
+
+(test/exn (parse-defn '{not-a-deffun {f x y} {+ 1 2}})
+          "expected a deffun expression")
+
+(test/exn (parse-defn '{deffun {f x x} {+ 1 2}})
+          "bad syntax")
+
+
 
 ;; ----------------------------------------------------------------------
 
-;; interp : F1WAE? (listof FunDef?) -> number?
-(define (interp an-f1wae fundefs)
-  (type-case F1WAE an-f1wae
+;; interp : fnWAE? (listof FunDef?) -> number?
+(define (interp an-fnWAE fundefs)
+  (type-case fnWAE an-fnWAE
     [num (n) n]
     [add (lhs rhs)
          (+ (interp lhs fundefs)
@@ -106,13 +183,25 @@
                   fundefs)]
     [id (name)
         (error 'interp "free identifier: ~a" name)]
-    [app (fun-name arg-expr)
-         (define the-fundef (lookup-fundef fun-name fundefs))
-         (define body (fundef-body the-fundef))
-         (interp (subst body
-                        (fundef-param-name the-fundef)
-                        (interp arg-expr fundefs))
-                 fundefs)]))
+    [app (fun-name arg-exprs)
+         (define found-function (lookup-fundef fun-name fundefs))
+         (define found-function-param-names (fundef-param-names found-function))
+         (define body (fundef-body found-function))
+         (unless (equal? (length arg-exprs) (length found-function-param-names))
+           (error 'interp "wrong arity"))
+         (define interpreted-arg-exprs
+           (map (lambda (arg-expr) (interp arg-expr fundefs)) arg-exprs))
+         (define paired-symbol-to-name
+           (map cons found-function-param-names interpreted-arg-exprs))
+         (define substituted-body
+           (foldl (lambda (elem acc) (subst acc
+                                            (first elem)
+                                            (second elem)))
+                  body
+                  paired-symbol-to-name))
+         (interp substituted-body fundefs)]))
+
+;; lookup-fundef : symbol? (listof FunDef?) -> FunDef?
 
 (define (lookup-fundef name fundefs)
   (cond [(empty? fundefs)
@@ -122,9 +211,9 @@
         [else
          (lookup-fundef name (rest fundefs))]))
 
-;; subst : F1WAE? symbol? number? -> F1WAE?
+;; subst : fnWAE? symbol? number? -> fnWAE?
 (define (subst a-f1wae name value)
-  (type-case F1WAE a-f1wae
+  (type-case fnWAE a-f1wae
     [num (n)
          a-f1wae]
     [add (l r)
@@ -142,9 +231,12 @@
         (if (equal? name name2)
             (num value)
             a-f1wae)]
-    [app (fun-name arg-expr)
-         (app fun-name (subst arg-expr name value))]))
+    [app (f-name arg-exprs)
+         (app f-name
+         (map (lambda (x) (subst x name value)) arg-exprs))]))
 
+
+#|
 ;; {deffun {f x}     {- 20 {twice {twice x}}}}
 ;; {deffun {twice y} {+ y y}}
 ;; {f 10}
@@ -267,3 +359,4 @@ substitute 10 for x in {with {x y} x}
              'x
              10)
       (with 'x (id 'y) (id 'x)))
+|#
