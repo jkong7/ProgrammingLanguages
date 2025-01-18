@@ -29,7 +29,11 @@
         (body-expr fnWAE?)]
   [id (name symbol?)]
   [app (fun-name symbol?)
-       (arg-exprs (listof fnWAE?))])
+       (arg-exprs (listof fnWAE?))]
+  [if0 (first-expr fnWAE?)
+       (result-zero fnWAE?)
+       (result-non-zero fnWAE?)])
+
 
 (define-type FunDef
   [fundef (fun-name symbol?)
@@ -52,6 +56,7 @@
          | {with {<id> <fnWAE>} fnWAE>}
          | <id>
          | {<id> <fnWAE>*}
+         | {if0 <fnWAE> <fnWAE> <fnWAE>}
 |#
 
 ;; parse : s-expression -> fnWAE?
@@ -79,6 +84,12 @@
             (with (first (second s-expr))
                   (parse (second (second s-expr)))
                   (parse (third s-expr)))]
+           [(if0)
+            (check-pieces s-expr 4 "if0")
+            (if0
+             (parse (second s-expr))
+             (parse (third s-expr))
+             (parse (fourth s-expr)))]
            [else
             (unless (symbol? (first s-expr))
               (error 'parse "expected a function name, got: ~a" (first s-expr)))
@@ -170,6 +181,19 @@
                (with 'c (num 5) (add (id 'c) (num 2)))
                (sub (num 4) (num 3)))))
 
+(test (parse '{if0 {+ 1 2} x 1})
+      (if0 (add (num 1) (num 2))
+           (id 'x)
+           (num 1)))
+
+(test (parse '{if0 {if0 {+ 1 2} x y} z w})
+      (if0 (if0 (add (num 1) (num 2)) (id 'x) (id 'y))
+           (id 'z)
+           (id 'w)))
+
+(test/exn (parse '{if0 {+ 1 2}})
+          "expected if0")
+
 ;; parse-defn tests
 
 (test (parse-defn '{deffun {f x y} {+ x y}})
@@ -184,6 +208,18 @@
       (fundef 'k (list 'a 'b 'c 'd)
               (with 'e (num 42) (add (id 'a) (id 'e)))))
 
+(test (parse-defn '{deffun {f x y} {if0 {+ x y} {+ x x} {+ y y}}})
+      (fundef 'f (list 'x 'y)
+              (if0 (add (id 'x) (id 'y))
+                   (add (id 'x) (id 'x))
+                   (add (id 'y) (id 'y)))))
+
+(test (parse-defn '{deffun {g x} {with {y {if0 {+ x 1} 0 1}} {+ y x}}})
+      (fundef 'g (list 'x)
+              (with 'y (if0 (add (id 'x) (num 1)) (num 0) (num 1))
+                    (add (id 'y) (id 'x)))))
+
+
 (test/exn (parse-defn '{deffun {"not" x y} {+ 1 2}})
           "expected a function name")
 
@@ -196,6 +232,11 @@
 
 
 ;; ----------------------------------------------------------------------
+
+;; interp-expr : fnWAE? (listof FunDef) -> Number
+(define (interp-expr an-fnwae fundefs)
+  (define initial-def-sub (mtSub))
+  (interp an-fnwae fundefs initial-def-sub))
 
 ;; interp : fnWAE? (listof FunDef?) DefSub? -> number?
 (define (interp an-fnwae fundefs ds)
@@ -210,6 +251,10 @@
                   (aSub name
                         (interp named-expr fundefs ds)
                         ds))]
+    [if0 (first-expr result-zero result-non-zero)
+         (if (= 0 (interp first-expr fundefs ds))
+             (interp result-zero fundefs ds)
+             (interp result-non-zero fundefs ds))]
     [app (fun-name arg-exprs)
          (define found-function (lookup-fundef fun-name fundefs))
          (define found-function-param-names (fundef-param-names found-function))
@@ -226,7 +271,7 @@
                                            acc))
                   (mtSub)
                   paired-symbol-to-name))
-         (interp body fundefs new-ds)]))
+         (interp body fundefs new-ds)])) 
 
 ;; lookup : symbol? DefSub? -> number?
 
@@ -250,9 +295,8 @@
 
 
 
-;; parse, parse-defn, interp tests, functions with multiple arguments:
+;; parse, parse-defn, interp, functions with multiple arguments, if0: 
 
-;; utilizing deferred substitution: each interp takes in an initially empty ds variable binding list:
 (define initial-def-sub (mtSub))
 
 (test (interp (parse `{f 10})
@@ -276,28 +320,42 @@
               initial-def-sub)
       35)
 
-(test (interp (parse '{with {x 5} {f x 10}})
+(test (interp-expr (parse '{with {x 5} {f x 10}})
               (list (fundef 'f '(a b) 
-                            (parse `{+ a b}))) 
-              initial-def-sub)
+                            (parse `{+ a b}))))
       15)
 
-(test (interp (parse '{with {y 2} {f y}})
-              (list (parse-defn '{deffun {f x} {+ x 1}}))
-              initial-def-sub)
+(test (interp-expr (parse '{with {y 2} {f y}})
+              (list (parse-defn '{deffun {f x} {+ x 1}})))
       3)
 
-(test (interp (parse '{+ {f 10} {g 20 10}})
+(test (interp-expr (parse '{+ {f 10} {g 20 10}})
               (list (parse-defn '{deffun {f x} {+ x 1}})
-                    (parse-defn '{deffun {g a b} {- a b}}))
-              initial-def-sub)
+                    (parse-defn '{deffun {g a b} {- a b}})))
       21)
 
-(test (interp (parse '{+ {f 1 2 3} {g 10 2 1}})
+(test (interp-expr (parse '{+ {f 1 2 3} {g 10 2 1}})
               (list (parse-defn '{deffun {f x y z} {+ x {+ y z}}})
-                    (parse-defn '{deffun {g a b c} {- a {+ b c}}}))
-              initial-def-sub)
+                    (parse-defn '{deffun {g a b c} {- a {+ b c}}})))
       13)
+
+(test (interp-expr (parse '{if0 0 1 2}) '()) 1)
+
+(test (interp-expr (parse '{if0 {f -2 2} {f 5 10} {g 10 5}})
+                   (list (parse-defn '{deffun {f x y} {+ x y}})
+                         (parse-defn '{deffun {g a b} {- a b}})))
+      15)
+
+(test (interp-expr (parse '{if0 {if0 {f 10} {f 10} {result}} {result} 10})
+                   (list (parse-defn '{deffun {f x} 0})
+                         (parse-defn '{deffun {result} 1000})))
+      1000)
+
+(test (interp (parse '{if0 {+ x y} {f x y} {g x y}})
+                   (list (parse-defn '{deffun {f x y} {- x y}})
+                         (parse-defn '{deffun {g x y} {+ x y}}))
+                   (aSub 'x 2 (aSub 'y -2 initial-def-sub)))
+      4)
 
 
 ;; errors: undefined function, bad syntax, wrong arrity, free identifier 
@@ -322,6 +380,11 @@
                   initial-def-sub)
           "free identifier")
 
+(test/exn (interp-expr (parse '{if0 x {+ 1 2} {- 3 4}})
+                       '())
+          "free identifier")
+
+
 (test/exn (interp (parse '{h 3 4})
                   (list (parse-defn '{deffun {h a a} {+ a a}}))
                   initial-def-sub)
@@ -330,6 +393,11 @@
 (test/exn (interp (parse '{g 5 10})
                   (list (parse-defn '{deffun {g x y x} {+ x y}}))
                   initial-def-sub)
+          "bad syntax")
+
+(test/exn (interp-expr (parse '{if0 {f 2 3} {g 1} {+ 10 20}})
+                       (list (parse-defn '{deffun {f x x} {+ x x}})
+                             (parse-defn '{deffun {g y} {+ y y}})))
           "bad syntax")
 
 
@@ -343,6 +411,11 @@
                   initial-def-sub)
           "undefined function")
 
+(test/exn (interp-expr (parse '{if0 0 {h 5} {+ 1 2}})
+                       (list (parse-defn '{deffun {f x} {+ x x}})))
+          "undefined function")
+
+
 (test/exn (interp (parse '{f 20})
                   (list (parse-defn '{deffun {f a b} {+ a b}}))
                   initial-def-sub)
@@ -354,130 +427,6 @@
                   initial-def-sub)
           "wrong arity")
 
-
-
-;; provided tests
-
-;; ----------------------------------------------------------------------
-;; tests from last time, updated
-
-;; {deffun {f x} {+ y x}}
-;; {with {y 2} {f 10}}
-(test/exn (interp (parse `{with {y 2} {f 10}})
-                  (list (fundef 'f '(x) 
-                                (parse `{+ y x})))
-                  initial-def-sub)
-          "free identifier")
-
-;; {deffun {f x} {+ 1 x}}
-;; {with {y 2} {f y}} ; -> 3
-(test (interp (parse `{with {y 2} {f y}})
-              (list (fundef 'f '(x) (parse `{+ 1 x})))
-              initial-def-sub)
-      3)
-
-;; 5 -> 5
-(test (interp (parse `5) '() initial-def-sub)
-      5)
-
-;; {+ 1 2} -> 3
-(test (interp (parse `{+ 1 2}) '() initial-def-sub)
-      3)
-
-;; {- 3 4} -> -1
-(test (interp (parse `{- 3 4}) '() initial-def-sub)
-      -1)
-
-;; {+ {+ 1 2} {- 3 4}} -> 2
-(test (interp (parse `{+ {+ 1 2} {- 3 4}}) '() initial-def-sub)
-      2)
-
-#|
-{with {x {+ 1 2}}
-      {+ x x}}
-|#
-(test (interp (parse `{with {x {+ 1 2}}
-                            {+ x x}})
-              '()
-              initial-def-sub)
-      6)
-
-#|
-x
-|#
-(test/exn (interp (parse `x) '() initial-def-sub)
-          "free identifier")
-
-#|
-{+ {with {x {+ 1 2}}
-         {+ x x}}
-   {with {x {- 4 3}}
-         {+ x x}}}
-|#
-(test (interp (parse `{+ {with {x {+ 1 2}}
-                               {+ x x}}
-                         {with {x {- 4 3}}
-                               {+ x x}}})
-              '()
-              initial-def-sub)
-      8)
-
-#|
-{+ {with {x {+ 1 2}}
-         {+ x x}}
-   {with {y {- 4 3}}
-         {+ y y}}}
-|#
-(test (interp (parse `{+ {with {x {+ 1 2}}
-                               {+ x x}}
-                         {with {y {- 4 3}}
-                               {+ y y}}})
-              '()
-              initial-def-sub)
-      8)
-
-#|
-{with {x {+ 1 2}}
-      {with {x {- 4 3}}
-            {+ x x}}}
-|#
-(test (interp (parse `{with {x {+ 1 2}}
-                            {with {x {- 4 3}}
-                                  {+ x x}}})
-              '()
-              initial-def-sub)
-      2)
-
-#|
-{with {x {+ 1 2}}
-      {with {y {- 4 3}}
-            {+ x x}}}
-|#
-(test (interp (parse `{with {x {+ 1 2}}
-                            {with {y {- 4 3}}
-                                  {+ x x}}})
-              '()
-              initial-def-sub)
-      6)
-
-;; Function application tests
-(test/exn (interp (parse `{f 10})
-                  (list)
-                  initial-def-sub)
-          "undefined function")
-
-(test (interp (parse `{f 10})
-              (list (fundef 'f '(x) 
-                            (parse `{- 20 {twice {twice x}}}))
-                    (fundef 'twice '(y) 
-                            (parse `{+ y y})))
-              initial-def-sub)
-      -20)
-
-(test (interp (parse `{f 10})
-              (list (fundef 'f '(x)  
-                            (parse `{- 10 {twice {twice x}}}))
-                    (fundef 'twice '(y) 
-                            (parse `{+ y y})))
-              initial-def-sub)
-      -30)
+(test/exn (interp-expr (parse '{if0 {f 1 2} {f 3} {+ 4 5}})
+                       (list (parse-defn '{deffun {f x} {+ x 1}})))
+          "wrong arity")
