@@ -1,5 +1,21 @@
 #lang plai
 
+; Jonathan Kong
+; CS 321
+; Winter 2025
+; Homework 1
+
+(define eight-principles
+  (list
+   "Know your rights."
+   "Acknowledge your sources."
+   "Protect your work."
+   "Avoid suspicion."
+   "Do your own work."
+   "Never falsify a record or permit another person to do so."
+   "Never fabricate data, citations, or experimental results."
+   "Always tell the truth when discussing your work with your instructor."))
+
 (print-only-errors)
 
 (define-type fnWAE
@@ -85,8 +101,6 @@
         [(member (first lst) (rest lst)) #t]
         [else (list-repeat? (rest lst))]))
 
-
-
 ;; check-pieces : s-expression number string -> void?
 
 (define (check-pieces s-exp n-pieces expected)
@@ -94,21 +108,26 @@
                (= (length s-exp) n-pieces))
     (error 'parse "expected ~a, got: ~a" expected s-exp)))
 
-
-
+;; parse tests
 
 (test (parse `1)
       (num 1))
+
 (test (parse `x)
       (id 'x))
+
 (test (parse `{+ 1 2})
       (add (num 1) (num 2)))
+
 (test (parse `{- 1 2})
       (sub (num 1) (num 2)))
+
 (test (parse `{+ 1 {+ 2 3}})
       (add (num 1) (add (num 2) (num 3))))
+
 (test (parse `{with {x 3} {+ x 2}})
       (with 'x (num 3) (add (id 'x) (num 2))))
+
 (test (parse `{f 10})
       (app 'f (list (num 10))))
 
@@ -124,6 +143,8 @@
       (app 'f (list)))
 
 
+;; parse error cases
+
 (test/exn (parse `{1 2})
           "expected a function name")
 (test/exn (parse `{+ 1 2 3})
@@ -132,7 +153,7 @@
           "expected a variable name")
 
 
-
+;; parse-defn tests
 
 (test (parse-defn '{deffun {f x y} {+ 1 2}})
       (fundef 'f (list 'x 'y)
@@ -195,8 +216,8 @@
            (map cons found-function-param-names interpreted-arg-exprs))
          (define substituted-body
            (foldl (lambda (elem acc) (subst acc
-                                            (first elem)
-                                            (second elem)))
+                                            (car elem)
+                                            (cdr elem)))
                   body
                   paired-symbol-to-name))
          (interp substituted-body fundefs)]))
@@ -236,16 +257,76 @@
          (map (lambda (x) (subst x name value)) arg-exprs))]))
 
 
-#|
-;; {deffun {f x}     {- 20 {twice {twice x}}}}
-;; {deffun {twice y} {+ y y}}
-;; {f 10}
+;; parse, parse-defn, interp tests, functions with multiple arguments: 
 (test (interp (parse `{f 10})
-              (list (fundef 'f 'x
+              (list (fundef 'f '(x) ; 
                             (parse `{- 20 {twice {twice x}}}))
-                    (fundef 'twice 'y
-                            (parse `{+ y y}))))
-      -20)
+                    (fundef 'twice '(y) 
+                            (parse `{+ y y})))) -20)
+
+(test (interp (parse '{f 20 {+ 1 3}})
+              (list (parse-defn '{deffun {f x y} {+ x y}})))
+      24)
+
+(test (interp (parse '{+ {f 10 20 30} {g 50 20}})
+              (list (parse-defn '{deffun {f x y z} {+ x {+ y z}}})
+                    (parse-defn '{deffun {g a b} {- a b}})))
+      90)
+
+(test (interp (parse '{+ {f 10 20} {g 30 {h 40 50}}})
+              (list (parse-defn '{deffun {f x y} {+ x y}})
+                    (parse-defn '{deffun {g a b} {- a b}})
+                    (parse-defn '{deffun {h p q} {+ p q}})))
+      -30)
+
+;; errors: undefined function, bad syntax, wrong arrity, free identifier 
+
+(test/exn (interp (parse '{with {x y} 1})
+                  (list))
+          "free identifier")
+
+(test/exn (interp (parse '{f 1 2})
+                  (list (parse-defn '{deffun {f x x} {+ x x}})))
+          "bad syntax")
+
+(test/exn (interp (parse '{f x})
+                  (list (parse-defn '{deffun {g a b c} c})))
+          "undefined function")
+
+(test/exn (interp (parse '{f 1})
+                  (list (parse-defn '{deffun {f x y} {+ x y}})))
+          "wrong arity")
+
+(test/exn (interp (parse '{g 3 4})
+                  (list (parse-defn '{deffun {g a b a} {+ a b}})))
+          "bad syntax")
+
+(test/exn (interp (parse '{with {x 3} {+ x y}}) (list))
+          "free identifier")
+
+(test/exn (interp (parse '{with {x {+ 1 2}} {+ x z}}) (list))
+          "free identifier")
+
+(test/exn (interp (parse '{f 10 20}) (list (parse-defn '{deffun {f x z} {+ x y}})))
+          "free identifier")
+
+(test/exn (interp (parse '{f 10}) (list))
+          "undefined function")
+
+(test/exn (interp (parse '{h 5 10})
+                  (list (parse-defn '{deffun {f x} {+ x 1}})))
+          "undefined function")
+
+(test/exn (interp (parse '{f 1 2})
+                  (list (parse-defn '{deffun {f x y z} {+ x y}})))
+          "wrong arity")
+
+(test/exn (interp (parse '{f})
+                  (list (parse-defn '{deffun {f x y} {+ x y}})))
+          "wrong arity")
+
+
+;; provided test cases: interp, parse, with, subst 
 
 ;; 5 -> 5
 (test (interp (parse `5) '())
@@ -359,4 +440,4 @@ substitute 10 for x in {with {x y} x}
              'x
              10)
       (with 'x (id 'y) (id 'x)))
-|#
+
