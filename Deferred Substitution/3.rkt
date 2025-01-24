@@ -271,7 +271,8 @@
                                            acc))
                   (mtSub)
                   paired-symbol-to-name))
-         (interp body fundefs new-ds)])) 
+         (interp body fundefs new-ds)]))
+
 
 ;; lookup : symbol? DefSub? -> number?
 
@@ -292,6 +293,124 @@
          (first fundefs)]
         [else
          (lookup-fundef name (rest fundefs))]))
+
+;; neg?-use : -> deffun (neg? : number? -> boolean)
+
+(define (neg?-use)
+  (list (parse-defn '{deffun {neg? x}
+                      {if0 x
+                           1 
+                           {helper-neg? x 0 100000}}})
+        (parse-defn '{deffun {helper-neg? num counter limit}
+                      {if0 num
+                           0 
+                           {if0 {- limit counter}
+                                1
+                                {helper-neg? {+ num 1} {+ counter 1} limit}}}})))
+
+;; neg? tests 
+
+(test (interp-expr (parse '{neg? -5}) (neg?-use)) 0)
+(test (interp-expr (parse '{neg? 5}) (neg?-use)) 1)
+(test (interp-expr (parse '{neg? 9999}) (neg?-use)) 1)
+(test (interp-expr (parse '{neg? -9999}) (neg?-use)) 0)
+(test (interp-expr (parse '{neg? 0}) (neg?-use)) 1)
+
+(test (interp-expr (parse '{if0 {f 1 4} {+ 1 4} {h 1 4 5}})
+                   (append (list (parse-defn '{deffun {f x y} {+ x y}})
+                                 (parse-defn '{deffun {h x y z} {+ {neg? 100} z}}))
+                           (neg?-use))) 
+      6)
+
+(test (interp-expr (parse '{if0 {neg? -4} {+ 1 4} {h 1 4 5}})
+                   (append (list (parse-defn '{deffun {f x y} {+ x y}})
+                                 (parse-defn '{deffun {h x y z} {+ {neg? 100} z}}))
+                           (neg?-use))) 
+      5)
+
+
+;; mult-use : -> deffun (mult : number? number? -> number?) 
+(define (mult-use)
+  (append (list (parse-defn '{deffun {mult x y}
+                               {branch-helper x y}})
+                (parse-defn '{deffun {branch-helper x2 y2}
+                               {if0 {helper-signs x2 y2}
+                                    {helper-mult x2 y2 0} 
+                                    {if0 {- {helper-signs x2 y2} 1}
+                                         {helper-mult {make-neg x2} y2 0} 
+                                         {helper-mult {make-neg x2} {make-neg y2} 0}}}}) 
+                (parse-defn '{deffun {helper-mult x3 y3 result}
+                               {if0 x3
+                                    result
+                                    {helper-mult {- x3 1} y3 {+ y3 result}}}})
+                (parse-defn '{deffun {helper-signs a b}
+                               {if0 {neg? a}
+                                    {if0 {neg? b}
+                                         2 
+                                         1}
+                                    0}})
+                (parse-defn '{deffun {make-neg a} {- 0 a}})) 
+          (neg?-use)))
+
+
+
+;; mult tests
+
+;; x is pos/0, y is pos/0
+(test (interp-expr (parse '(mult 3 5)) (mult-use))
+      15)
+(test (interp-expr (parse '(mult 0 5)) (mult-use))
+      0)
+(test (interp-expr (parse '(mult 1000 0)) (mult-use))
+      0)
+
+;; x is pos/0, y is neg
+(test (interp-expr (parse '(mult 2 -3)) (mult-use))
+      -6)
+(test (interp-expr (parse '(mult 100 -15)) (mult-use))
+      -1500)
+(test (interp-expr (parse '(mult 0 -3)) (mult-use))
+       0)
+
+;; x is neg, y is pos
+;;(test (interp-expr (parse '(mult -2 -3)) (mult-use))
+;;       6)
+
+
+;; mult-and-neg-deffuns
+
+(define mult-and-neg-deffuns
+  (list
+   `{deffun {neg? x}
+       {if0 x
+            1 
+            {helper-neg? x 0 100000}}}
+   `{deffun {helper-neg? num counter limit}
+       {if0 num
+            0 
+            {if0 {- limit counter}
+                 1
+                 {helper-neg? {+ num 1} {+ counter 1} limit}}}}
+   `{deffun {mult x y}
+       {branch-helper x y}}
+   `{deffun {branch-helper x2 y2}
+       {if0 {helper-signs x2 y2}
+            {helper-mult x2 y2 0} 
+            {if0 {- {helper-signs x2 y2} 1}
+                 {helper-mult {make-neg x2} y2 0} 
+                 {helper-mult {make-neg x2} {make-neg y2} 0}}}}
+   `{deffun {helper-mult x3 y3 result}
+       {if0 x3
+            result
+            {helper-mult {- x3 1} y3 {+ y3 result}}}}
+   `{deffun {helper-signs a b}
+       {if0 {neg? a}
+            {if0 {neg? b}
+                 2 
+                 1}
+            0}}
+   `{deffun {make-neg a}
+       {- 0 a}}))
 
 
 
@@ -356,6 +475,8 @@
                          (parse-defn '{deffun {g x y} {+ x y}}))
                    (aSub 'x 2 (aSub 'y -2 initial-def-sub)))
       4)
+
+
 
 
 ;; errors: undefined function, bad syntax, wrong arrity, free identifier 
