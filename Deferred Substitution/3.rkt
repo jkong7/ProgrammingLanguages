@@ -295,18 +295,18 @@
          (lookup-fundef name (rest fundefs))]))
 
 ;; neg?-use : -> deffun (neg? : number? -> boolean)
-
 (define (neg?-use)
-  (list (parse-defn '{deffun {neg? x}
-                      {if0 x
-                           1 
-                           {helper-neg? x 0 100000}}})
-        (parse-defn '{deffun {helper-neg? num counter limit}
-                      {if0 num
-                           0 
-                           {if0 {- limit counter}
-                                1
-                                {helper-neg? {+ num 1} {+ counter 1} limit}}}})))
+  (list (parse-defn '{deffun {neg? n}
+                       {if0 n
+                            1
+                            {inc_or_dec_to_zero n n}}})
+        (parse-defn '{deffun {inc_or_dec_to_zero incrementer decrementer}
+                       {if0 incrementer
+                            0
+                            {if0 decrementer
+                                 1
+                                 {inc_or_dec_to_zero {+ incrementer 1}
+                                                     {- decrementer 1}}}}})))
 
 ;; neg? tests 
 
@@ -329,29 +329,15 @@
       5)
 
 
-;; mult-use : -> deffun (mult : number? number? -> number?) 
+;; mult-use : -> deffun (mult : number? number? -> number?)
 (define (mult-use)
   (append (list (parse-defn '{deffun {mult x y}
-                               {branch-helper x y}})
-                (parse-defn '{deffun {branch-helper x2 y2}
-                               {if0 {helper-signs x2 y2}
-                                    {helper-mult x2 y2 0} 
-                                    {if0 {- {helper-signs x2 y2} 1}
-                                         {helper-mult {make-neg x2} y2 0} 
-                                         {helper-mult {make-neg x2} {make-neg y2} 0}}}}) 
-                (parse-defn '{deffun {helper-mult x3 y3 result}
-                               {if0 x3
-                                    result
-                                    {helper-mult {- x3 1} y3 {+ y3 result}}}})
-                (parse-defn '{deffun {helper-signs a b}
-                               {if0 {neg? a}
-                                    {if0 {neg? b}
-                                         2 
-                                         1}
-                                    0}})
-                (parse-defn '{deffun {make-neg a} {- 0 a}})) 
+                               {if0 {neg? y}
+                                    {- 0 {mult x {- 0 y}}}
+                                    {if0 y
+                                         0
+                                         {+ x {mult x {- y 1}}}}}}))
           (neg?-use)))
-
 
 
 ;; mult tests
@@ -372,46 +358,39 @@
 (test (interp-expr (parse '(mult 0 -3)) (mult-use))
        0)
 
-;; x is neg, y is pos
-;;(test (interp-expr (parse '(mult -2 -3)) (mult-use))
-;;       6)
+;; x is neg, y is neg 
+(test (interp-expr (parse '(mult -2 -3)) (mult-use))
+       6)
 
+(test (interp-expr (parse '(mult -2 -20)) (mult-use))
+       40)
+
+;; x is neg, y is pos
+
+(test (interp-expr (parse '(mult -2 3)) (mult-use))
+       -6)
+
+(test (interp-expr (parse '(mult -2 20)) (mult-use))
+       -40)
 
 ;; mult-and-neg-deffuns
 
 (define mult-and-neg-deffuns
-  (list
-   `{deffun {neg? x}
-       {if0 x
-            1 
-            {helper-neg? x 0 100000}}}
-   `{deffun {helper-neg? num counter limit}
-       {if0 num
-            0 
-            {if0 {- limit counter}
-                 1
-                 {helper-neg? {+ num 1} {+ counter 1} limit}}}}
-   `{deffun {mult x y}
-       {branch-helper x y}}
-   `{deffun {branch-helper x2 y2}
-       {if0 {helper-signs x2 y2}
-            {helper-mult x2 y2 0} 
-            {if0 {- {helper-signs x2 y2} 1}
-                 {helper-mult {make-neg x2} y2 0} 
-                 {helper-mult {make-neg x2} {make-neg y2} 0}}}}
-   `{deffun {helper-mult x3 y3 result}
-       {if0 x3
-            result
-            {helper-mult {- x3 1} y3 {+ y3 result}}}}
-   `{deffun {helper-signs a b}
-       {if0 {neg? a}
-            {if0 {neg? b}
-                 2 
-                 1}
-            0}}
-   `{deffun {make-neg a}
-       {- 0 a}}))
-
+  (list `{deffun {mult x y}
+           {if0 {neg? y}
+                {- 0 {mult x {- 0 y}}}
+                {if0 y
+                     0
+                     {+ x {mult x {- y 1}}}}}}
+        `{deffun {neg? x}
+           {neg-help x x}}
+        '{deffun {inc_or_dec_to_zero incrementer decrementer}
+           {if0 incrementer
+                0
+                {if0 decrementer
+                     1
+                     {inc_or_dec_to_zero {+ incrementer 1}
+                                         {- decrementer 1}}}}}))
 
 
 ;; parse, parse-defn, interp, functions with multiple arguments, if0: 
