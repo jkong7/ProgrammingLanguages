@@ -256,13 +256,13 @@
              (interp result-zero fundefs ds)
              (interp result-non-zero fundefs ds))]
     [app (fun-name arg-exprs)
+         (define interpreted-arg-exprs
+           (map (lambda (arg-expr) (interp arg-expr fundefs ds)) arg-exprs))
          (define found-function (lookup-fundef fun-name fundefs))
          (define found-function-param-names (fundef-param-names found-function))
          (define body (fundef-body found-function))
          (unless (equal? (length arg-exprs) (length found-function-param-names))
            (error 'interp "wrong arity"))
-         (define interpreted-arg-exprs
-           (map (lambda (arg-expr) (interp arg-expr fundefs ds)) arg-exprs))
          (define paired-symbol-to-name
            (map cons found-function-param-names interpreted-arg-exprs))
          (define new-ds
@@ -296,10 +296,10 @@
 
 ;; neg?-use : -> deffun (neg? : number? -> boolean)
 (define (neg?-use)
-  (list (parse-defn '{deffun {neg? n}
-                       {if0 n
+  (list (parse-defn '{deffun {neg? x}
+                       {if0 x
                             1
-                            {inc_or_dec_to_zero n n}}})
+                            {inc_or_dec_to_zero x x}}})
         (parse-defn '{deffun {inc_or_dec_to_zero incrementer decrementer}
                        {if0 incrementer
                             0
@@ -376,14 +376,16 @@
 ;; mult-and-neg-deffuns
 
 (define mult-and-neg-deffuns
-  (list `{deffun {mult x y}
+  (list '{deffun {mult x y}
            {if0 {neg? y}
                 {- 0 {mult x {- 0 y}}}
                 {if0 y
                      0
                      {+ x {mult x {- y 1}}}}}}
-        `{deffun {neg? x}
-           {neg-help x x}}
+        '{deffun {neg? x}
+           {if0 x
+                1
+                {inc_or_dec_to_zero x x}}}
         '{deffun {inc_or_dec_to_zero incrementer decrementer}
            {if0 incrementer
                 0
@@ -454,6 +456,7 @@
                          (parse-defn '{deffun {g x y} {+ x y}}))
                    (aSub 'x 2 (aSub 'y -2 initial-def-sub)))
       4)
+
 
 
 
@@ -530,3 +533,19 @@
 (test/exn (interp-expr (parse '{if0 {f 1 2} {f 3} {+ 4 5}})
                        (list (parse-defn '{deffun {f x} {+ x 1}})))
           "wrong arity")
+
+
+
+
+(test/exn (interp-expr (parse '{f x})
+                       (list (parse-defn '{deffun {f a b c} c})))
+          "free identifier")
+
+
+(test/exn (interp-expr (parse '{+ 1 {f x}})
+                       (list (parse-defn '{deffun {f a b c} c})))
+          "free identifier")
+
+(test (interp-expr (parse '{neg? -1})
+                   (map parse-defn mult-and-neg-deffuns))
+      0)
