@@ -486,3 +486,148 @@ x
                                          {with {y 10} {z y}}}))
                   initial-def-sub)
           "free identifier")
+
+;; ----------------------------------------------------------------------------
+
+;; interp-expr 
+
+(define (interp-expr an-fae)
+  (define emptyds (mtSub))
+  (type-case FAE-Value (interp an-fae emptyds)
+    [numV (n) n]
+    [closureV (a b c) 'function]))
+
+(test (interp-expr (num 10)) 10)
+
+(test (interp-expr (fun 'x (id 'x))) 'function)
+
+;; ----------------------------------------------------------------------------
+
+;; factorial, prime?
+
+(define factorial
+  '{with {mk-rec
+          {fun {applyLogic}
+               {with {selfRef
+                      {fun {selfRef}
+                           {with {funLogic
+                                  {fun {n}
+                                       {{selfRef selfRef} n}}}
+                                 {applyLogic funLogic}}}}
+                     {selfRef selfRef}}}}
+         {with {mult
+                {mk-rec
+                 {fun {mult}
+                      {fun {x y}
+                           {if0 y
+                                0
+                                {+ x {mult x
+                                           {- y 1}}}}}}}}
+               {fun {n}
+                    {with {factLogic
+                           {mk-rec
+                            {fun {iter}
+                                 {fun {x}
+                                      {if0 x
+                                           1
+                                           {mult x
+                                                 {iter {- x 1}}}}}}}}
+                          {factLogic n}}}}})
+
+
+(test (interp-expr (compile (parse `{,factorial 0})))
+      1)
+(test (interp-expr (compile (parse `{,factorial 1})))
+      1)
+(test (interp-expr (compile (parse `{,factorial 2})))
+      2)
+(test (interp-expr (compile (parse `{,factorial 3})))
+      6)
+(test (interp-expr (compile (parse `{,factorial 4})))
+      24)
+(test (interp-expr (compile (parse `{,factorial 5})))
+      120)
+(test (interp-expr (compile (parse `{,factorial 6})))
+      720)
+
+ 
+
+(define prime?
+  '{with {mk-rec
+          {fun {applyLogic}
+               {with {selfRef
+                      {fun {selfRef}
+                           {with {funLogic
+                                  {fun {n}
+                                       {{selfRef selfRef} n}}}
+                                 {applyLogic funLogic}}}}
+                     {selfRef selfRef}}}}
+         {with {inc_or_dec_to_zero
+                {mk-rec
+                 {fun {inc_or_dec_to_zero}
+                      {fun {inc dec}
+                           {if0 inc
+                                0
+                                {if0 dec
+                                     1
+                                     {inc_or_dec_to_zero {+ inc 1}
+                                                         {- dec 1}}}}}}}}
+               {with {neg?
+                      {fun {x}
+                           {if0 x
+                                1
+                                {inc_or_dec_to_zero x x}}}}
+                     {with {mult
+                            {mk-rec
+                             {fun {mult}
+                                  {fun {x y}
+                                       {if0 y
+                                            0
+                                            {+ x
+                                               {mult x {- y 1}}}}}}}}
+                           {fun {num}
+                                {with {primeTrialDivision
+                                       {mk-rec
+                                        {fun {primeTrialDivision}
+                                             {fun {nToCheck divisor nextDivisor}
+                                                  {if0 {neg? {- nToCheck
+                                                                {mult divisor nextDivisor}}}
+                                                       {if0 {neg? {- nToCheck
+                                                                     {mult divisor divisor}}}
+                                                            0
+                                                            {primeTrialDivision nToCheck {+ divisor 1} 2}}
+                                                       {if0 {- nToCheck
+                                                               {mult divisor nextDivisor}}
+                                                            1
+                                                            {primeTrialDivision nToCheck divisor {+ nextDivisor 1}}}}}}}}
+                                      {primeTrialDivision num 2 2}}}}}}})
+                     
+
+(test (interp-expr (compile (parse `{,prime? 2}))) 0)
+(test (interp-expr (compile (parse `{,prime? 3}))) 0)
+(test (interp-expr (compile (parse `{,prime? 5}))) 0)
+(test (interp-expr (compile (parse `{,prime? 7}))) 0)
+(test (interp-expr (compile (parse `{,prime? 11}))) 0)
+(test (interp-expr (compile (parse `{,prime? 13}))) 0)
+(test (interp-expr (compile (parse `{,prime? 17}))) 0)
+(test (interp-expr (compile (parse `{,prime? 19}))) 0)
+(test (interp-expr (compile (parse `{,prime? 23}))) 0)
+(test (interp-expr (compile (parse `{,prime? 29}))) 0)
+(test (interp-expr (compile (parse `{,prime? 31}))) 0)
+(test (interp-expr (compile (parse `{,prime? 37}))) 0)
+(test (interp-expr (compile (parse `{,prime? 41}))) 0)
+(test (interp-expr (compile (parse `{,prime? 43}))) 0)
+(test (interp-expr (compile (parse `{,prime? 47}))) 0)
+
+(test (interp-expr (compile (parse `{,prime? 4}))) 1)
+(test (interp-expr (compile (parse `{,prime? 6}))) 1)
+(test (interp-expr (compile (parse `{,prime? 8}))) 1)
+(test (interp-expr (compile (parse `{,prime? 9}))) 1)
+(test (interp-expr (compile (parse `{,prime? 10}))) 1)
+(test (interp-expr (compile (parse `{,prime? 12}))) 1)
+(test (interp-expr (compile (parse `{,prime? 14}))) 1)
+(test (interp-expr (compile (parse `{,prime? 15}))) 1)
+(test (interp-expr (compile (parse `{,prime? 16}))) 1)
+(test (interp-expr (compile (parse `{,prime? 18}))) 1)
+(test (interp-expr (compile (parse `{,prime? 20}))) 1)
+(test (interp-expr (compile (parse `{,prime? 21}))) 1)
