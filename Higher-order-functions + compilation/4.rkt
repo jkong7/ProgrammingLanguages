@@ -1,5 +1,21 @@
 #lang plai
 
+; Jonathan Kong
+; CS 321
+; Winter 2025
+; Homework 3
+
+(define eight-principles
+  (list
+   "Know your rights."
+   "Acknowledge your sources."
+   "Protect your work."
+   "Avoid suspicion."
+   "Do your own work."
+   "Never falsify a record or permit another person to do so."
+   "Never fabricate data, citations, or experimental results."
+   "Always tell the truth when discussing your work with your instructor."))
+
 (print-only-errors)
 
 (define-type FNWAE 
@@ -46,6 +62,7 @@
         (rest  DefSub?)])
 
 ;; parse : s-expr -> FNWAE?
+
 
 (define (parse s-expr)
   (cond [(number? s-expr)
@@ -158,6 +175,10 @@
 
 ;; compile and parse tests
 
+(test (parse '{fun {x y} {+ x y}})
+      (W-fun '(x y) (W-add (W-id 'x) (W-id 'y))))
+
+
 (test (compile (W-with 'x (W-num 5) (W-add (W-id 'x) (W-num 1))))
       (app (fun 'x (add (id 'x) (num 1))) (num 5)))
 
@@ -226,7 +247,7 @@
 
 ;; --------------------------------------------------------------------------------------------
 
-;; interp : FAE? DefSub? -> FAE-Value?
+;; interp : FAE? DefSub? -> FAE-Value? 
 (define (interp an-fae ds)
   (type-case FAE an-fae
     [num (n) (numV n)]
@@ -268,14 +289,89 @@
               (lookup name rest))]))
 
 
-
 ;; parse, compile, interp tests
+
+(define initial-def-sub (mtSub))
+
+(test (interp (compile (parse '{with {f {fun {x y} {+ x y}}}
+                                     {f 2 3}}))
+              initial-def-sub)
+      (numV 5))
+
+(test (interp (compile (parse '{with {add2 {fun {x} {+ x 2}}}
+                                     {with {add3 {fun {y} {+ y 3}}}
+                                           {add2 {add3 4}}}}))
+              initial-def-sub)
+      (numV 9))
+
+(test (interp (compile (parse '{fun {x} {+ 1 1}}))
+              initial-def-sub)
+      (closureV 'x (num 2) (mtSub)))
+
+(test (interp (compile (parse '{if0 {+ 2 -2}
+                                      {+ 1 10}
+                                      {+ 2 10}}))
+              initial-def-sub)
+      (numV 11))
+
+(test (interp (compile (parse '{if0 {fun {x} {+ x 1}} 
+                                      {+ 1 10}      
+                                      {+ 2 10}}))    
+              initial-def-sub)
+      (numV 12)) 
+
+(test (interp (compile (parse '{if0 {+ 1 -2}
+                                    {fun {x} {+ x 1}}
+                                    {fun {y} {+ y 2}}}))
+              initial-def-sub)
+      (closureV 'y (add (id 'y) (num 2)) (mtSub)))
+
+(test (interp (compile (parse '{if0 {+ 1 -2}
+                                    {{fun {x} {+ x 1}} 2}
+                                    {{fun {y} {+ y 2}} 2}}))
+              initial-def-sub)
+      (numV 4))
+
+(test (interp (compile (parse '{with {f {fun {x} {+ x 1}}}
+                                     {with {g {fun {y} {f {+ y 1}}}}
+                                           {g 3}}}))
+              initial-def-sub)
+      (numV 5))
+
+(test/exn (interp (compile (parse `{with {f {fun {x} {+ x 1}}}
+                                     {g 5}}))
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (compile (parse `{with {a 10}
+                                     {with {b {+ a c}}
+                                           {+ b 2}}}))
+                  initial-def-sub)
+          "free identifier")
+
+(test/exn (interp (compile (parse '{1 2}))
+                  initial-def-sub)
+          "expected function")
+
+(test/exn (interp (compile (parse `{+ {fun {x} x} {1 2}}))
+                  initial-def-sub)
+          "expected function")
+
+(test/exn (interp (compile (parse `{+ 1 {fun {x} 10}}))
+                  initial-def-sub)
+          "expected number")
+
+(test/exn (interp (compile (parse `{+ {fun {} x} {1 2}}))
+                  initial-def-sub)
+          "nullary function")
+
+(test/exn (interp (compile (parse `{with {f {fun {x} {+ x 1}}} {f}}))
+                  initial-def-sub)
+          "nullary application")
 
 
 
 ;; provided tests 
-
-(define initial-def-sub (mtSub))
 
 ;; 5 -> 5
 (test (interp (compile (parse `5))
@@ -365,6 +461,8 @@ x
 (test (interp (compile (parse `{fun {x} {+ x 1}}))
               initial-def-sub)
       (closureV 'x (add (id 'x) (num 1)) (mtSub)))
+
+
 
 (test/exn (interp (compile (parse `{1 2}))
                   initial-def-sub)
