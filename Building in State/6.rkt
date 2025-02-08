@@ -1,50 +1,52 @@
 #lang plai
 (print-only-errors)
 
-(define-type BFAE
+(define-type SFAE
   [num (n number?)]
-  [add (lhs BFAE?)
-       (rhs BFAE?)]
-  [sub (lhs BFAE?)
-       (rhs BFAE?)]
+  [add (lhs SFAE?)
+       (rhs SFAE?)]
+  [sub (lhs SFAE?)
+       (rhs SFAE?)]
   [id (name symbol?)]
   [fun (param-name symbol?)
-       (body BFAE?)]
-  [app (fun-expr BFAE?)
-       (arg-expr BFAE?)]
-  [newbox (init-expr BFAE?)]
-  [setbox (box-expr BFAE?)
-          (new-expr BFAE?)]
-  [openbox (box-expr BFAE?)]
-  [seqn (expr1 BFAE?)
-        (expr2 BFAE?)])
+       (body SFAE?)]
+  [app (fun-expr SFAE?)
+       (arg-expr SFAE?)]
+  [new-struct (fields (listof (cons symbol? SFAE?)))]
+  [struct-get (targetstruct SFAE?)
+             (id symbol?)]
+  [struct-set (targetstruct SFAE?)
+             (id symbol?)
+             (newval SFAE?)]
+  [seqn (expr1 SFAE?)
+        (expr2 SFAE?)])
 
 (define-type Store
   [mtSto]
   [aSto (address integer?)
-        (value BFAE-Value?)
+        (value (listof (cons symbol? SFAE-Value?)))
         (rest Store?)])
 
 (define-type Value*Store
-  [v*s (v BFAE-Value?)
+  [v*s (v SFAE-Value?)
        (s Store?)])
 
-(define-type BFAE-Value
+(define-type SFAE-Value
   [numV (n number?)]
   [closureV (param-name symbol?)
-            (body BFAE?)
+            (body SFAE?)
             (ds DefSub?)]
-  [boxV (address integer?)])
+  [structV (address integer?)])
 
 (define-type DefSub
   [mtSub]
   [aSub  (name symbol?)
-         (value BFAE-Value?)
+         (value SFAE-Value?)
          (rest DefSub?)])
 
 ;; ----------------------------------------------------------------------
 
-;; parse : s-expression -> BFAE?
+;; parse : s-expression -> SFAE?
 (define (parse s-exp)
   (cond [(number? s-exp)
          (num s-exp)]
@@ -74,16 +76,29 @@
               (error 'parse "expected variable name, got ~a" (first (second s-exp))))
             (app (fun (first (second s-exp)) (parse (third s-exp)))
                  (parse (second (second s-exp))))]
-           [(newbox)
-            (check-pieces s-exp "newbox" 2)
-            (newbox (parse (second s-exp)))]
-           [(setbox)
-            (check-pieces s-exp "setbox" 3)
-            (setbox (parse (second s-exp))
-                    (parse (third s-exp)))]
-           [(openbox)
-            (check-pieces s-exp "openbox" 2)
-            (openbox (parse (second s-exp)))]
+           [(struct)
+            (check-pieces s-exp "struct" (length s-exp)) 
+            (new-struct
+             (map (lambda (field-pair)
+                    (unless (and (list? field-pair) (= (length field-pair) 2))
+                      (error 'parse "expected {id value} pair in struct, got ~a" field-pair))
+                    (unless (symbol? (first field-pair))
+                      (error 'parse "expected field name to be a symbol, got ~a" (first field-pair)))
+                    (cons (first field-pair) (parse (second field-pair))))
+                  (rest s-exp)))]  
+           [(get)
+            (check-pieces s-exp "get" 3)
+            (unless (symbol? (third s-exp))
+              (error 'parse "expected symbol, got ~a" (third s-exp)))
+            (struct-get (parse (second s-exp))
+                        (third s-exp))]
+           [(set)
+            (check-pieces s-exp "set" 4)
+            (unless (symbol? (third s-exp))
+              (error 'parse "expected symbol, got ~a" (third s-exp)))
+            (struct-set (parse (second s-exp))
+                        (third s-exp)
+                        (parse (first (rest (rest (rest s-exp))))))]
            [(seqn)
             (check-pieces s-exp "seqn" 3)
             (seqn (parse (second s-exp))
@@ -93,7 +108,7 @@
             (app (parse (first s-exp))
                  (parse (second s-exp)))])]
         [else
-         (error 'parse "expected BFAE got ~a" s-exp)]))
+         (error 'parse "expected SFAE got ~a" s-exp)]))
 
 (define (check-pieces s-exp expected n-pieces)
   (unless (and (list? s-exp)
@@ -102,13 +117,13 @@
 
 ;; ----------------------------------------------------------------------
 
-;; interp-test : s-expression -> BFAE-Value?
+;; interp-test : s-expression -> SFAE-Value?
 (define (interp-test s-exp)
   (v*s-v (interp (parse s-exp) (mtSub) (mtSto))))
 
-;; interp : BFAE? DefSub? Store? -> Value*Store?
+;; interp : SFAE? DefSub? Store? -> Value*Store?
 (define (interp a-bfae ds st) ; NEW
-  (type-case BFAE a-bfae
+  (type-case SFAE a-bfae
     [num (n) (v*s (numV n)
                   st)]
     [add (l r) (numop + l r ds st)]
@@ -129,6 +144,53 @@
                                      arg-val
                                      (closureV-ds fun-val))
                                st3)))]
+    ;; fields is (listof (cons symbol? SFAE?)), the SFAEs have to be evaluated
+    [new-struct (fields)
+                (define evaluated-fields
+                  (map (lambda (symbol-SFAE-pair)
+                         (cons (car symbol-SFAE-pair)
+                               (interp (cdr symbol-SFAE-pair)))))
+                       fields)
+                (define address (malloc stX))
+                (v*s (structV address)
+                     (aSto address
+                           evaluated-fields
+                           stX))]
+    
+
+    [new-struct (fields)
+                (define evaluated-fields
+                  ...)
+                (define address (malloc stX)
+                  (v*s (structV address)
+                       (aSto address
+                             evaluated-fields
+                             stX)))]
+    [new-struct (fields)
+                (define evaluated-fields-and-store
+                  (evaluate-and-accumulate-fields fields ds st (list)))
+                (define evaluated-fields (car evaluated-fields-and-store))
+                (define stX (cdr evaluated-fields-and-store))
+                (define address (malloc stX))
+                (v*s (structV address)
+                     (aSto address
+                           evaluated-fields
+                           stX))]
+    
+    (define (evaluate-and-accumulate-fields fields ds st acc)
+      (cond [(empty? fields) (cons acc st)]
+            [else
+             (define evaluated-val (interp (second (first fields)) ds st))
+             (type-case Value*Store evaluated-val
+               [v*s (val st2)
+                    (define new-acc (append acc (list (cons (first (first fields)) val))))
+                    (evaluate-and-accumulate-fields (rest fields) ds st2 new-acc)])]))
+
+    
+    [struct-get (targetstruct id)]
+    [struct-set (targetstruct id newval)]
+    [seqn (expr1 expr2)]
+    
     [newbox (init-expr)
             (type-case Value*Store (interp init-expr ds st)
               [v*s (init-val st2)
@@ -162,8 +224,8 @@
                       (lambda (expr1-val expr2-val st3)
                         (v*s expr2-val st3)))]))
 
-;; interp-two : BFAE? BFAE? DefSub? Store?
-;;              (BFAE-Value? BFAE-Value? Store? -> Value*Store?)
+;; interp-two : SFAE? SFAE? DefSub? Store?
+;;              (SFAE-Value? SFAE-Value? Store? -> Value*Store?)
 ;;              -> Value*Store?
 (define (interp-two e1 e2 ds st finish)
   (type-case Value*Store (interp e1 ds st)
@@ -172,7 +234,7 @@
                    [v*s (v2 st3)
                         (finish v1 v2 st3)])]))
 
-;; lookup-store : integer? Store -> BFAE-Value?
+;; lookup-store : integer? Store -> (listof (pair symbol? SFAE-Value?))
 (define (lookup-store a s)
   (type-case Store s
     [mtSto () (error 'interp "internal error: dangling pointer")]
@@ -188,7 +250,7 @@
     [aSto (a v r) (max a (max-address r))]))
 
 ;; numop : (number? number? -> number?)
-;;         BFAE? BFAE? DefSub? Store? -> Value*Store?
+;;         SFAE? SFAE? DefSub? Store? -> Value*Store?
 (define (numop op l r ds st)
   (interp-two
    l r ds st
@@ -200,7 +262,7 @@
      (v*s (numV (op (numV-n l-val) (numV-n r-val)))
           st3))))
 
-;; lookup : symbol? DefSub? -> BFAE-Value?
+;; lookup : symbol? DefSub? -> SFAE-Value?
 (define (lookup name ds)
   (type-case DefSub ds
     [mtSub () (error 'interp "free identifier")]
