@@ -144,28 +144,6 @@
                                      arg-val
                                      (closureV-ds fun-val))
                                st3)))]
-    ;; fields is (listof (cons symbol? SFAE?)), the SFAEs have to be evaluated
-    [new-struct (fields)
-                (define evaluated-fields
-                  (map (lambda (symbol-SFAE-pair)
-                         (cons (car symbol-SFAE-pair)
-                               (interp (cdr symbol-SFAE-pair)))))
-                       fields)
-                (define address (malloc stX))
-                (v*s (structV address)
-                     (aSto address
-                           evaluated-fields
-                           stX))]
-    
-
-    [new-struct (fields)
-                (define evaluated-fields
-                  ...)
-                (define address (malloc stX)
-                  (v*s (structV address)
-                       (aSto address
-                             evaluated-fields
-                             stX)))]
     [new-struct (fields)
                 (define evaluated-fields-and-store
                   (evaluate-and-accumulate-fields fields ds st (list)))
@@ -176,38 +154,22 @@
                      (aSto address
                            evaluated-fields
                            stX))]
-    
-    (define (evaluate-and-accumulate-fields fields ds st acc)
-      (cond [(empty? fields) (cons acc st)]
-            [else
-             (define evaluated-val (interp (second (first fields)) ds st))
-             (type-case Value*Store evaluated-val
-               [v*s (val st2)
-                    (define new-acc (append acc (list (cons (first (first fields)) val))))
-                    (evaluate-and-accumulate-fields (rest fields) ds st2 new-acc)])]))
+    [struct-get (targetstruct id)
+                (define evaluated-targetstruct (interp targetstruct ds st))
+                (type-case Value*Store evaluated-targetstruct
+                  [v*s (sfae st2)
+                       (type-case SFAE-Value sfae
+                         [numV (n) (error 'interp "expected struct")]
+                         [closureV (_1 _2 _3) (error 'interp "expected struct")]
+                         [structV (address)
+                                  (define targetstruct-fields (lookup-store address st2))
+                                  (lookup-struct id targetstruct-fields st2)])])]
+  
 
-    
-    [struct-get (targetstruct id)]
+   
     [struct-set (targetstruct id newval)]
     [seqn (expr1 expr2)]
     
-    [newbox (init-expr)
-            (type-case Value*Store (interp init-expr ds st)
-              [v*s (init-val st2)
-                   (define address (malloc st2))
-                   (v*s (boxV address)
-                        (aSto address
-                              init-val
-                              st2))])]
-    [openbox (box-expr)
-             (type-case Value*Store (interp box-expr ds st)
-               [v*s (bfae-val st2)
-                    (type-case BFAE-Value bfae-val
-                      [numV (n) (error 'interp "expected box")]
-                      [closureV (_1 _2 _3) (error 'interp "expected box")]
-                      [boxV (addr)
-                            (v*s (lookup-store addr st2)
-                                 st2)])])]
     [setbox (box-expr new-expr)
             (interp-two box-expr new-expr ds st
                         (lambda (box-val new-val st3)
@@ -223,6 +185,30 @@
           (interp-two expr1 expr2 ds st
                       (lambda (expr1-val expr2-val st3)
                         (v*s expr2-val st3)))]))
+
+;; lookup-struct : symbol? (listof (pair symbol? SFAE-Value?)) -> SFAE-Value?
+(define (lookup-struct id fields st)
+  (cond
+    [(empty? fields) (error 'interp "unknown field")]
+    [(equal? id (car (first fields)))
+     (v*s (cdr (first fields))
+          st)]
+    [else (lookup-struct id (rest fields) st)]))
+
+
+
+;; evaluate-and-accumulate-fields : (listof (pair symbol? SFAE?)) DefSub? Store? (listof (pair symbol? SFAE-Value?)) 
+;;                                  -> (pair (listof (pair symbol? SFAE-Value?)) Store?)
+(define (evaluate-and-accumulate-fields fields ds st acc)
+  (cond 
+    [(empty? fields) (cons acc st)]
+    [else
+     (define evaluated-val (interp (second (first fields)) ds st))
+     (type-case Value*Store evaluated-val
+       [v*s (val st2)
+            (define new-acc (append acc (list (cons (first (first fields)) val))))
+            (evaluate-and-accumulate-fields (rest fields) ds st2 new-acc)])]))
+
 
 ;; interp-two : SFAE? SFAE? DefSub? Store?
 ;;              (SFAE-Value? SFAE-Value? Store? -> Value*Store?)
