@@ -77,7 +77,8 @@
             (app (fun (first (second s-exp)) (parse (third s-exp)))
                  (parse (second (second s-exp))))]
            [(struct)
-            (check-pieces s-exp "struct" (length s-exp)) 
+            (unless (>= (length s-exp) 2) 
+              (error 'parse "expected at least one field in struct, got ~a" s-exp))
             (new-struct
              (map (lambda (field-pair)
                     (unless (and (list? field-pair) (= (length field-pair) 2))
@@ -85,7 +86,7 @@
                     (unless (symbol? (first field-pair))
                       (error 'parse "expected field name to be a symbol, got ~a" (first field-pair)))
                     (cons (first field-pair) (parse (second field-pair))))
-                  (rest s-exp)))]  
+                  (rest s-exp)))]
            [(get)
             (check-pieces s-exp "get" 3)
             (unless (symbol? (third s-exp))
@@ -116,10 +117,6 @@
     (error 'parse "expected ~a got ~a" expected s-exp)))
 
 ;; ----------------------------------------------------------------------
-
-;; interp-test : s-expression -> SFAE-Value?
-(define (interp-test s-exp)
-  (v*s-v (interp (parse s-exp) (mtSub) (mtSto))))
 
 ;; interp : SFAE? DefSub? Store? -> Value*Store?
 (define (interp a-bfae ds st) ; NEW
@@ -164,29 +161,39 @@
                          [structV (address)
                                   (define targetstruct-fields (lookup-store address st2))
                                   (lookup-struct id targetstruct-fields st2)])])]
-  
-
-   
-    [struct-set (targetstruct id newval)]
-    [seqn (expr1 expr2)]
-    
-    [setbox (box-expr new-expr)
-            (interp-two box-expr new-expr ds st
-                        (lambda (box-val new-val st3)
-                          (type-case BFAE-Value box-val
-                            [numV (n) (error 'interp "expected box")]
-                            [closureV (_1 _2 _3) (error 'interp "expected box")]
-                            [boxV (addr)
-                                  (v*s (boxV addr)
-                                       (aSto addr
-                                             new-val
-                                             st3))])))]
+    [struct-set (targetstruct id val)
+                (interp-two targetstruct val ds st
+                            (lambda (targetstruct-val newval st3)
+                              (type-case SFAE-Value targetstruct-val
+                                [numV (n) (error 'interp "expected struct")]
+                                [closureV (_1 _2 _3) (error 'interp "expected struct")]
+                                [structV (address)
+                                         (define oldfields (lookup-store address st3))
+                                         (define oldval (v*s-v (lookup-struct id oldfields)))
+                                         (define replaced-fields (replace oldfields id newval))
+                                         (v*s oldval
+                                              (aSto address
+                                                    replaced-fields
+                                                    st3))])))]
     [seqn (expr1 expr2)
           (interp-two expr1 expr2 ds st
                       (lambda (expr1-val expr2-val st3)
                         (v*s expr2-val st3)))]))
+   
 
-;; lookup-struct : symbol? (listof (pair symbol? SFAE-Value?)) -> SFAE-Value?
+
+;; replace : (listof (pair symbol? SFAE-Value?)) symbol? SFAE-Value?
+;;            -> (listof (pair symbol? SFAE-Value?))
+(define (replace oldfields id newval)
+  (cond
+    [(empty? oldfields) (error 'interp "unknown field")]
+    [(equal? id (car (first oldfields)))
+     (cons (cons id newval) (rest oldfields))]
+    [else
+     (cons (first oldfields) (replace (rest oldfields) id newval))]))
+
+
+;; lookup-struct : symbol? (listof (pair symbol? SFAE-Value?)) -> Value*Store
 (define (lookup-struct id fields st)
   (cond
     [(empty? fields) (error 'interp "unknown field")]
@@ -257,6 +264,24 @@
               val
               (lookup name rest))]))
 
+;; interp-test : s-expression -> SFAE-Value?
+(define (interp-test s-exp)
+  (v*s-v (interp (parse s-exp) (mtSub) (mtSto))))
+
+;; interp-expr : SFAE? -> number? or 'function or 'struct
+(define (interp-expr an-fae)
+  (type-case SFAE-Value (v*s-v (interp an-fae (mtSub) (mtSto)))
+    [numV (n) n]
+    [closureV (a b c) 'function]
+    [structV (address) 'struct]))
+
+;; *NEW: struct tests + error cases
+(test (interp-test '{struct {x 1}})
+      (structV 1))
+
+
+#|
+
 (test (interp-test `{newbox 10})
       (boxV 1))
 
@@ -313,8 +338,10 @@
                            {setbox {seqn {setbox b 12} b}
                                    {openbox b}}}})
       (numV 12))
+|#
 
 ;; ----------------------------------------------------------------------
+;; prior provided tests - up to bindings, fun, app, closures
 
 (test (interp-test `{fun {x} {+ x 1}})
       (closureV 'x (add (id 'x) (num 1))
