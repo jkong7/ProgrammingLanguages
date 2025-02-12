@@ -1,4 +1,21 @@
 #lang plai
+
+; Jonathan Kong
+; CS 321
+; Winter 2025
+; Homework 4
+
+(define eight-principles
+  (list
+   "Know your rights."
+   "Acknowledge your sources."
+   "Protect your work."
+   "Avoid suspicion."
+   "Do your own work."
+   "Never falsify a record or permit another person to do so."
+   "Never fabricate data, citations, or experimental results."
+   "Always tell the truth when discussing your work with your instructor."))
+
 (print-only-errors)
 
 (define-type SFAE
@@ -12,7 +29,7 @@
        (body SFAE?)]
   [app (fun-expr SFAE?)
        (arg-expr SFAE?)]
-  [new-struct (fields (listof (cons symbol? SFAE?)))]
+  [new-struct (fields (listof (cons/c symbol? SFAE?)))]
   [struct-get (targetstruct SFAE?)
              (id symbol?)]
   [struct-set (targetstruct SFAE?)
@@ -24,7 +41,7 @@
 (define-type Store
   [mtSto]
   [aSto (address integer?)
-        (value (listof (cons symbol? SFAE-Value?)))
+        (value storage-value?)
         (rest Store?)])
 
 (define-type Value*Store
@@ -43,6 +60,14 @@
   [aSub  (name symbol?)
          (value SFAE-Value?)
          (rest DefSub?)])
+
+(define-type storage-value
+  [numStorage (n number?)]
+  [closureStorage (param-name symbol?)
+            (body SFAE?)
+            (ds DefSub?)]
+  [structStorage (address integer?)]
+  [valueStorage (fields (listof (cons/c symbol? SFAE-Value?)))])
 
 ;; ----------------------------------------------------------------------
 
@@ -76,6 +101,9 @@
               (error 'parse "expected variable name, got ~a" (first (second s-exp))))
             (app (fun (first (second s-exp)) (parse (third s-exp)))
                  (parse (second (second s-exp))))]
+
+
+           
            [(struct)
             (unless (>= (length s-exp) 2) 
               (error 'parse "expected at least one field in struct, got ~a" s-exp))
@@ -87,6 +115,8 @@
                       (error 'parse "expected field name to be a symbol, got ~a" (first field-pair)))
                     (cons (first field-pair) (parse (second field-pair))))
                   (rest s-exp)))]
+
+           
            [(get)
             (check-pieces s-exp "get" 3)
             (unless (symbol? (third s-exp))
@@ -119,8 +149,8 @@
 ;; ----------------------------------------------------------------------
 
 ;; interp : SFAE? DefSub? Store? -> Value*Store?
-(define (interp a-bfae ds st) ; NEW
-  (type-case SFAE a-bfae
+(define (interp a-sfae ds st)
+  (type-case SFAE a-sfae
     [num (n) (v*s (numV n)
                   st)]
     [add (l r) (numop + l r ds st)]
@@ -149,8 +179,9 @@
                 (define address (malloc stX))
                 (v*s (structV address)
                      (aSto address
-                           evaluated-fields
+                           (valueStorage evaluated-fields)
                            stX))]
+    
     [struct-get (targetstruct id)
                 (define evaluated-targetstruct (interp targetstruct ds st))
                 (type-case Value*Store evaluated-targetstruct
@@ -160,7 +191,13 @@
                          [closureV (_1 _2 _3) (error 'interp "expected struct")]
                          [structV (address)
                                   (define targetstruct-fields (lookup-store address st2))
-                                  (lookup-struct id targetstruct-fields st2)])])]
+                                  (type-case storage-value targetstruct-fields
+                                    [numStorage (n) "..."]
+                                    [closureStorage (_1 _2 _3) "..."]
+                                    [structStorage (addr) "..."]
+                                    [valueStorage (extract-targetstruct-fields)
+                                                  (lookup-struct id extract-targetstruct-fields st2)])])])]
+      
     [struct-set (targetstruct id val)
                 (interp-two targetstruct val ds st
                             (lambda (targetstruct-val newval st3)
@@ -169,17 +206,31 @@
                                 [closureV (_1 _2 _3) (error 'interp "expected struct")]
                                 [structV (address)
                                          (define oldfields (lookup-store address st3))
-                                         (define oldval (v*s-v (lookup-struct id oldfields)))
-                                         (define replaced-fields (replace oldfields id newval))
-                                         (v*s oldval
-                                              (aSto address
-                                                    replaced-fields
-                                                    st3))])))]
+                                         (type-case storage-value oldfields
+                                           [numStorage (n) "..."]
+                                           [closureStorage (_1 _2 _3) "..."]
+                                           [structStorage (addr) "..."]
+                                           [valueStorage (extract-oldfields)
+                                                         (define oldval (v*s-v (lookup-struct id extract-oldfields st)))
+                                                         (define replaced-fields (replace extract-oldfields id newval))
+                                                         (v*s oldval
+                                                              (replace-inplace address
+                                                                             (valueStorage replaced-fields)  
+                                                                             st3))])])))]
     [seqn (expr1 expr2)
           (interp-two expr1 expr2 ds st
                       (lambda (expr1-val expr2-val st3)
                         (v*s expr2-val st3)))]))
+
+;; replace-inplace : integer? storage-value? Store? -> Store?
    
+(define (replace-inplace address new-value store)
+  (type-case Store store
+    [mtSto () (error 'interp "internal error: dangling pointer")]
+    [aSto (addr v rest)
+          (if (= addr address)
+              (aSto addr new-value rest) 
+              (aSto addr v (replace-inplace address new-value rest)))]))
 
 
 ;; replace : (listof (pair symbol? SFAE-Value?)) symbol? SFAE-Value?
@@ -210,10 +261,10 @@
   (cond 
     [(empty? fields) (cons acc st)]
     [else
-     (define evaluated-val (interp (second (first fields)) ds st))
+     (define evaluated-val (interp (cdr (first fields)) ds st))
      (type-case Value*Store evaluated-val
        [v*s (val st2)
-            (define new-acc (append acc (list (cons (first (first fields)) val))))
+            (define new-acc (append acc (list (cons (car (first fields)) val))))
             (evaluate-and-accumulate-fields (rest fields) ds st2 new-acc)])]))
 
 
@@ -227,7 +278,7 @@
                    [v*s (v2 st3)
                         (finish v1 v2 st3)])]))
 
-;; lookup-store : integer? Store -> (listof (pair symbol? SFAE-Value?))
+;; lookup-store : integer? Store -> storage-value
 (define (lookup-store a s)
   (type-case Store s
     [mtSto () (error 'interp "internal error: dangling pointer")]
@@ -275,9 +326,162 @@
     [closureV (a b c) 'function]
     [structV (address) 'struct]))
 
+
+
 ;; *NEW: struct tests + error cases
 (test (interp-test '{struct {x 1}})
       (structV 1))
+
+(test (interp-test '{get {struct {x 1}} x})
+      (numV 1))
+
+(test (interp-test '{get {struct {x {fun {y} {+ 1 y}}}} x})
+      (closureV 'y (add (num 1) (id 'y)) (mtSub)))
+
+(test (interp-expr (parse '{struct {x 1}}))
+      'struct)
+
+(test (interp-expr (parse '{get {struct {a {struct {b 42}}}} a}))
+      'struct)
+
+(test (interp-expr (parse '{{fun {x} {struct {a x} {b {+ x 1}}}} 5}))
+      'struct)  
+
+
+(test (interp-expr (parse '{get {struct {x {fun {y} 2}}} x}))
+      'function)
+
+(test (interp-expr (parse '{get {struct {x 2}} x}))
+      2)
+
+(test (interp-expr (parse '{seqn 
+                               {set {struct {x 5} {y 10}} x 42}
+                               {get {struct {x 5} {y 10}} x}}))
+      5)
+
+(test (interp-expr (parse '{{fun {r}
+                                 {seqn
+                                  {set r x 99}
+                                  {get r x}}}
+                            {struct {x 1} {y 2}}}))
+      99)
+
+(test (interp-expr (parse '{{fun {r}
+                                 {seqn
+                                  {set r x 7}
+                                  {seqn
+                                   {set r y 10}
+                                   {+ {get r x} {get r y}}}}}
+                            {struct {x 1} {y 2}}}))
+      17)
+
+(test (interp-expr (parse '{get {get {struct {a {struct {b 100}}}} a} b}))
+      100)
+
+(test (interp-expr (parse '{seqn
+                               {set {struct {x 5} {y 10}} x 100}
+                               {seqn
+                                {set {struct {x 5} {y 10}} y 200}
+                                {+ {get {struct {x 5} {y 10}} x} {get {struct {x 5} {y 10}} y}}}}))
+      15)
+
+(test (interp-expr (parse '{{fun {r}
+                                 {seqn
+                                  {set r a 2}
+                                  {seqn
+                                   {set r b {+ {get r a} 10}}
+                                   {get r b}}}}
+                            {struct {a 1} {b 3}}}))
+      12)
+
+
+(test/exn (interp-test '{+ x 2})
+          "free identifier")
+
+(test/exn (interp-test '{1 2})
+          "expected function")
+
+(test/exn (interp-test `{seqn {struct {a 10}} {5 3}})
+          "expected function")
+
+(test/exn (interp-test `{{get {struct {x 5}} x} 3})
+          "expected function") 
+
+(test/exn (interp-test '{+ 1 {struct {x 1}}})
+          "expected number")
+
+(test/exn (interp-test `{- {fun {x} {+ x 1}} 5})
+          "expected number")
+
+(test/exn (interp-test `{+ {struct {x 1}} 2})
+          "expected number") 
+
+(test/exn (interp-test '{get {struct {x 1}} y})
+          "unknown field")
+
+(test/exn (interp-test `{set {struct {x 1}} y 2})
+          "unknown field") 
+
+(test/exn (interp-test `{{fun {s} {get s y}} {struct {x 1}}})
+          "unknown field")
+
+(test/exn (interp-test `{seqn {set {struct {x 1}} y 2} {get {struct {x 1}} x}})
+          "unknown field") 
+
+(test/exn (interp-test '{get {fun {y} {+ 1 y}} y})
+          "expected struct")
+
+(test/exn (interp-test '{get 1 y})
+          "expected struct")
+
+(test/exn (interp-test `{get {fun {y} {+ y 1}} x})
+          "expected struct")
+
+(test/exn (interp-test `{seqn {get 7 x} {+ 1 2}})
+          "expected struct") 
+
+(test/exn (interp-test '{set {fun {y} {+ 1 y}} y 2})
+          "expected struct")
+
+
+
+
+;; provided homework 4 test suite
+(test/exn (interp-expr (parse '{struct {z {get {struct {z 0}} y}}}))
+          "unknown field")
+
+(test (interp-expr (parse '{{fun {r}
+                                 {get r x}}
+                            {struct {x 1}}}))
+      1)
+
+(test (interp-expr (parse '{set {struct {x 42}} x 2}))
+      42)
+
+
+(test (interp-expr (parse '{{fun {r}
+                                 {seqn
+                                  {set r x 5}
+                                  {get r x}}}
+                            {struct {x 1}}}))
+      5)
+
+(test (interp-expr (parse '{{{{{fun {g}
+                                    {fun {s}
+                                         {fun {r1}
+                                              {fun {r2}
+                                                   {+ {get r1 b}
+                                                      {seqn
+                                                       {{s r1} {g r2}}
+                                                       {+ {seqn
+                                                           {{s r2} {g r1}}
+                                                           {get r1 b}}
+                                                          {get r2 b}}}}}}}}
+                               {fun {r} {get r a}}} 
+                              {fun {r} {fun {v} {set r b v}}}} 
+                             {struct {a 0} {b 2}}} 
+                            {struct {a 3} {b 4}}})) 
+      5)
 
 
 #|
