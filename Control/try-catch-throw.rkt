@@ -1,4 +1,21 @@
 #lang plai
+
+; Jonathan Kong
+; CS 321
+; Winter 2025
+; Homework 5
+
+(define eight-principles
+  (list
+   "Know your rights."
+   "Acknowledge your sources."
+   "Protect your work."
+   "Avoid suspicion."
+   "Do your own work."
+   "Never falsify a record or permit another person to do so."
+   "Never fabricate data, citations, or experimental results."
+   "Always tell the truth when discussing your work with your instructor."))
+
 (print-only-errors)
 
 (define-type EFAE
@@ -48,17 +65,17 @@
   [app-do-body     (fun-val EFAE-Value?)
                    (rest-k Cont?)]
   [app-do-return   (rest-k Cont?)]
-  [do-try-catch    (expected-tag symbol?) ;;expects evaluated try-body 
+  [do-if0 (els EFAE?)
+          (thn EFAE?)
+          (ds DefSub?)
+          (rest-k Cont?)]
+  [do-try-catch    (expected-tag symbol?) 
                    (exn-name symbol?)
                    (catch-body EFAE?)
                    (rest-k Cont?)]
-  [do-early-throw  (throw-tag symbol?) ;;expects evaluated throw-expr 
+  [do-early-throw  (throw-tag symbol?) 
                    (rest-k Cont?)]
   [done])
-
-;; throw, go into a return function -> discard/continue recursing if not a do-catch AND once
-;; we get to a do-catch, needs to match a tag, otherwise keep recursing like other cases,
-;; getting an empty cont means throw was never caught so "missing catch" error 
 
 ;; ----------------------------------------------------------------------
 
@@ -155,13 +172,9 @@
     [app (fun-expr arg-expr)
          (interp fun-expr ds
                  (app-do-arg arg-expr ds k))]
-    [if0 (tst thn els)
-         (define val (interp tst ds k))
-         (type-case EFAE-Value val
-           [numV (n) (if (= n 0)
-                         (interp thn ds k)
-                         (interp els ds k))]
-           [closureV (_1 _2 _3) (interp thn ds k)])]
+    [if0 (tst els thn)
+         (interp tst ds
+                 (do-if0 els thn ds k))]
     [throw (tag throw-expr)
            (interp throw-expr ds
                    (do-early-throw tag k))]
@@ -182,6 +195,8 @@
                  (return ret-val tag rest-k)]
     [app-do-return (rest-k)
                    (return ret-val tag rest-k)]
+    [do-if0 (els thn ds rest-k)
+            (return ret-val tag rest-k)]
     [do-early-throw (throw-tag rest-k)
                     (return ret-val tag rest-k)]
     [do-try-catch (expected-tag exn-name catch-body rest-k)
@@ -233,6 +248,18 @@
                                            ds)
                                      (app-do-return rest-k))]
                    [else (error 'interp "expected function")])]
+    [do-if0 (els thn ds rest-k)
+            (define test-value v)
+            (type-case EFAE-Value v
+              [numV (n)
+                    (if (= n 0)
+                        (interp els ds
+                                rest-k)
+                        (interp thn ds
+                                rest-k))]
+              [closureV (_1 _2 _3)
+                        (interp thn ds
+                                rest-k)])]
     [app-do-return (rest-k)
                    (define ret-val v)
                    (interp-cont ret-val rest-k)]
@@ -298,7 +325,7 @@
       1)
 
 (test (interp-expr (parse '{if0 {fun {x} x} 1 2}))
-      1)
+      2)
 
 (test (interp-expr (parse '{if0 2 1 2}))
       2)
@@ -337,6 +364,44 @@
                                                          {{fun {x} x} 2}}}}))
       2)
 
+(test/exn (interp-expr (parse '{try {try {try {throw x 10}
+                                              {catch {tag c as b} {+ b 8}}}
+                                         {catch {tag y as z} {+ z 9}}}
+                                    {catch {tag g as e} {+ e 10}}}))
+          "missing catch")
+
+(test (interp-expr (parse '{+ {if0 0 {+ 10 6} 2} 5}))
+      21)
+
+(test (interp-expr (parse `(+ ((fun (x) (if0 x 2 3)) 0) 10)))
+      12)
+
+(test (interp-expr (parse `(try (if0 (throw a 1) 1 2) (catch (tag a as x) 4))))
+      4)
+
+(test (interp-expr
+       (parse `(+ 2 (try (+ 1 (if0 (throw a 1) 1 2)) (catch (tag a as x) 4)))))
+      6)
+
+(test (interp-expr
+       (parse `(if0 (try (+ 1 (if0 (throw a 1) 1 2)) (catch (tag a as x) 0)) 0 1)))
+      0)
+
+(test (interp-expr
+       (parse
+        `(try
+          (try
+           (if0
+            (+
+             2
+             (try
+              ((fun (f) (f 3)) (fun (x) (throw y 1)))
+              (catch (tag a as e) (+ 5 e))))
+            100
+            101)
+           (catch (tag z as e) (+ e 2)))
+          (catch (tag y as e) (+ 10 e)))))
+      11)
 
 ;; provided homework 5 test cases
 
