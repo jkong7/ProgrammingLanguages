@@ -23,7 +23,6 @@ closure: ... | 'clos | <code-ptr> | <n-free-vars> | <fv0> | <fv1> | ... | ...
     (heap-set! i 'free)))
 
 
-
 (define (malloc n root1 root2)
   (if (equal? (heap-ref 1) 'second-half)
       (cond
@@ -37,7 +36,7 @@ closure: ... | 'clos | <code-ptr> | <n-free-vars> | <fv0> | <fv1> | ... | ...
          (begin0 (heap-ref 0)
            (heap-set! 0 (+ (heap-ref 0) n)))])
       (cond
-        [(>= (+ n (heap-ref 0)) (heap-size))
+        [(>= (+ n (heap-ref 0)) (+ 4 (/ (- (heap-size) 4) 2)))
          (collect-garbage root1 root2)
          (if (>= (+ n (heap-ref 0)) 
                  (+ 4 (/ (- (heap-size) 4) 2)))
